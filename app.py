@@ -14,14 +14,30 @@ import streamlit as st
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from knowledge import retrieve
-
 load_dotenv()
 
+
+def _get_key(name: str) -> str:
+    """本地 .env 优先；部署到 Streamlit Cloud 时从 st.secrets 读取。"""
+    value = os.environ.get(name)
+    if not value and hasattr(st, "secrets"):
+        value = st.secrets.get(name)
+    if not value:
+        raise ValueError(f"缺少 {name}，请在 .env（本地）或 Streamlit secrets（云端）中配置")
+    os.environ[name] = value
+    return value
+
+
 client = OpenAI(
-    api_key=os.environ["DEEPSEEK_API_KEY"],
+    api_key=_get_key("DEEPSEEK_API_KEY"),
     base_url="https://api.deepseek.com",
 )
+
+# 智谱 Key 也提前注入环境变量，knowledge.py import 时会用到
+_get_key("ZHIPU_API_KEY")
+
+from knowledge import retrieve
+
 
 # ---------- 系统提示词：约束模型"只根据资料回答"（防幻觉的关键一步） ----------
 SYSTEM_PROMPT = (
