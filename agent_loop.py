@@ -96,45 +96,47 @@ TOOL_FUNCS = {"calculate": calculate, "get_current_time": get_current_time, "sea
 
 
 # ---------- Agent 循环 ----------
-messages = [
-    {
-        "role": "user",
-        "content": "这个项目支持多少种编程语言？",
-    }
-]
+if __name__ == "__main__":
 
-MAX_STEPS = 10  # 安全阀：防止模型无限要工具，烧光余额
+    messages = [
+        {
+            "role": "user",
+            "content": "这个项目支持多少种编程语言？",
+        }
+    ]
 
-for step in range(1, MAX_STEPS + 1):
-    resp = client.chat.completions.create(
-        model="deepseek-chat",
-        messages=messages,
-        tools=TOOLS,
-    )
-    msg = resp.choices[0].message
-    messages.append(msg)  # 对话历史不能断
+    MAX_STEPS = 10  # 安全阀：防止模型无限要工具，烧光余额
 
-    # 模型不再要工具了 → 任务完成，说人话收尾
-    if not msg.tool_calls:
-        print("最终答案:", msg.content)
-        break
-
-    # 模型要工具 → 逐个执行、逐个回传
-    for call in msg.tool_calls:
-        name = call.function.name
-        args = json.loads(call.function.arguments)
-        print(f"[第{step}步] 模型请求调用: {name}({args})")
-
-        func = TOOL_FUNCS[name]
-        result = func(**args)
-        print(f"[第{step}步] 本地执行结果: {result}")
-
-        messages.append(
-            {
-                "role": "tool",
-                "tool_call_id": call.id,
-                "content": result,
-            }
+    for step in range(1, MAX_STEPS + 1):
+        resp = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=messages,
+            tools=TOOLS,
         )
-else:
-    print("达到最大步数，强制停止（防失控）")
+        msg = resp.choices[0].message
+        messages.append(msg)  # 对话历史不能断
+
+        # 模型不再要工具了 → 任务完成，说人话收尾
+        if not msg.tool_calls:
+            print("最终答案:", msg.content)
+            break
+
+        # 模型要工具 → 逐个执行、逐个回传
+        for call in msg.tool_calls:
+            name = call.function.name
+            args = json.loads(call.function.arguments)
+            print(f"[第{step}步] 模型请求调用: {name}({args})")
+
+            func = TOOL_FUNCS[name]
+            result = func(**args)
+            print(f"[第{step}步] 本地执行结果: {result}")
+
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call.id,
+                    "content": result,
+                }
+            )
+    else:
+        print("达到最大步数，强制停止（防失控）")
