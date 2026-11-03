@@ -36,9 +36,12 @@
 
 ```
 mini-agent/
-├── app.py              # Streamlit 主程序
-├── agent_loop.py       # ReAct 循环 + 工具调用核心
+├── app.py              # Streamlit 主程序（只负责界面，Agent 逻辑不在这里）
+├── agent.py            # Agent 类：ReAct 循环 + 多轮记忆 + 工具轨迹收集
+├── tools.py            # 工具注册表：函数本体 + JSON Schema，单一来源
 ├── knowledge.py        # RAG 知识库：文档、向量化、检索
+├── agent_loop.py       # 函数式 ReAct 循环（阶段2 教学版，保留对照）
+├── agent_class.py      # Agent 类的用法演示（多轮记忆）
 ├── tool_call.py        # 单次工具调用教学示例
 ├── rag_demo.py         # RAG 流程教学示例
 ├── hello_agent.py      # 首次调通 LLM 的最小示例
@@ -46,6 +49,18 @@ mini-agent/
 ├── assets/             # 截图等静态资源
 └── .gitignore          # 忽略 .venv / .env / __pycache__
 ```
+
+### 分层设计
+
+| 层 | 文件 | 职责 |
+|----|------|------|
+| 界面层 | `app.py` | 只做渲染与交互，Agent 实例挂在 `st.session_state` 上跨请求存活 |
+| 编排层 | `agent.py` | 一次 `chat()` = 一轮对话；`messages` 喂模型、`turns` 给人看 |
+| 能力层 | `tools.py` | 工具函数 + Schema，一处定义多处复用 |
+| 检索层 | `knowledge.py` | Embedding + 余弦相似度 top-k |
+
+> 关键设计：**模型上下文（`messages`）与展示历史（`turns`）分离** —— 前者含 system / tool 等内部消息，后者只保留一问一答及该轮工具轨迹，界面永远不需要理解 OpenAI 的消息协议细节。
+
 
 ---
 
