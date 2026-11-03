@@ -53,8 +53,25 @@ agent: Agent = st.session_state.agent
 # ---------- 侧边栏：观察 Agent 的记忆状态 ----------
 with st.sidebar:
     st.subheader("Agent 状态")
-    st.metric("已完成轮次", agent.turn_count)
-    st.caption(f"上下文消息数：{len(agent.messages)} 条（含 system 与工具回传）")
+    col_turn, col_ctx = st.columns(2)
+    col_turn.metric("轮次", agent.turn_count)
+    col_ctx.metric("上下文", agent.context_size)
+
+    max_turns = st.slider(
+        "记忆轮数上限",
+        min_value=2,
+        max_value=10,
+        value=agent.max_turns or 6,
+        help="保留最近 N 轮原文；更早的对话会被压缩成摘要，避免 token 无限膨胀",
+    )
+    agent.max_turns = max_turns
+
+    if agent.summary:
+        with st.expander("已压缩的早期对话摘要"):
+            st.write(agent.summary)
+    else:
+        st.caption("还没有触发压缩：聊超过上限的轮数后，这里会出现摘要")
+
     if st.button("清空对话记忆", use_container_width=True):
         agent.reset()
         st.rerun()
