@@ -8,6 +8,10 @@ from datetime import datetime
 
 from knowledge import retrieve
 
+# 相似度低于这个值就当作"没检索到"。实测相关问题 top1 多在 0.5 以上，
+# 无关问题只有 0.25 左右，0.35 是一条安全分界线——宁可说不知道，也别硬凑。
+MIN_SCORE = 0.35
+
 
 # ---------- 工具函数本体 ----------
 def calculate(expression: str) -> str:
@@ -24,9 +28,19 @@ def get_current_time() -> str:
 
 
 def search_docs(query: str) -> str:
-    """检索知识库，返回与问题最相关的几段内容"""
-    hits = retrieve(query, top_k=2)
-    return "\n---\n".join(doc for doc, score in hits)
+    """检索知识库，返回与问题最相关的内容（带来源与相似度）"""
+    hits = retrieve(query, top_k=3)
+    relevant = [h for h in hits if h["score"] >= MIN_SCORE]
+    if not relevant:
+        best = hits[0]["score"] if hits else 0.0
+        return (
+            f"知识库中没有找到相关内容（最高相似度 {best:.2f}，低于阈值 {MIN_SCORE}）。"
+            "请直接告诉用户资料不足，不要凭印象回答。"
+        )
+    return "\n---\n".join(
+        f"[{h['source']} · {h['heading']}] 相似度 {h['score']:.2f}\n{h['text']}"
+        for h in relevant
+    )
 
 
 # ---------- 给模型看的说明书（JSON Schema） ----------

@@ -8,6 +8,7 @@
 
 import json
 import os
+from typing import Callable
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -28,6 +29,7 @@ class Agent:
         tools: list | None = None,
         tool_funcs: dict | None = None,
         client: OpenAI | None = None,
+        on_event: Callable[[dict], None] | None = None,
     ):
         self.client = client or OpenAI(
             api_key=os.environ["DEEPSEEK_API_KEY"],
@@ -38,6 +40,7 @@ class Agent:
         self.tool_funcs = TOOL_FUNCS if tool_funcs is None else tool_funcs
         self.max_steps = max_steps
         self.system_prompt = system_prompt
+        self.on_event = on_event  # 外部观察者：命令行打印、界面进度条都靠它
 
         self.messages: list[dict] = []  # 喂给模型的上文（含 system / tool 消息）
         self.turns: list[dict] = []     # 给人看的历史（只含 user / assistant + trace）
@@ -52,6 +55,7 @@ class Agent:
         trace: list[dict] = []
 
         for step in range(1, self.max_steps + 1):
+            self._emit({"type": "step", "step": step})
             resp = self.client.chat.completions.create(
                 model=self.model,
                 messages=self.messages,
@@ -65,11 +69,13 @@ class Agent:
             if not msg.tool_calls:  # 不再要工具 → 这一轮结束
                 answer = msg.content or ""
                 self._record(user_input, answer, trace)
+                self._emit({"type": "final", "answer": answer, "steps": step})
                 return answer
 
             for call in msg.tool_calls:
                 name = call.function.name
                 args = json.loads(call.function.arguments or "{}")
+                self._emit({"type": "tool_start", "step": step, "tool": name, "args": args})
 
                 try:
                     result = str(self.tool_funcs[name](**args))
@@ -79,6 +85,9 @@ class Agent:
                     result = f"工具执行失败: {e}"
 
                 trace.append({"step": step, "tool": name, "args": args, "result": result})
+                self._emit(
+                    {"type": "tool_end", "step": step, "tool": name, "result": result}
+                )
                 self.messages.append(
                     {"role": "tool", "tool_call_id": call.id, "content": result}
                 )
@@ -86,6 +95,7 @@ class Agent:
         # 走满 max_steps 还没收敛：强制刹车，防止无限调工具烧钱
         fallback = "（达到最大步数，已强制停止。可以把问题拆小一点再问）"
         self._record(user_input, fallback, trace)
+        self._emit({"type": "max_steps", "steps": self.max_steps})
         return fallback
 
     def reset(self) -> None:
@@ -101,6 +111,11 @@ class Agent:
         return sum(1 for t in self.turns if t["role"] == "assistant")
 
     # ---------- 内部 ----------
+    def _emit(self, event: dict) -> None:
+        """把内部状态变化抛给外部，Agent 自己不 print、不依赖任何界面。"""
+        if self.on_event:
+            self.on_event(event)
+
     def _record(self, user_input: str, answer: str, trace: list[dict]) -> None:
         self.turns.append({"role": "user", "content": user_input})
         self.turns.append({"role": "assistant", "content": answer, "trace": trace})

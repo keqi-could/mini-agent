@@ -14,8 +14,11 @@
 |------|------|
 | **ReAct 循环** | 模型自主决定“思考 → 行动 → 观察 → 再思考”，直到得出答案 |
 | **工具调用** | 内置 `calculate`、`get_current_time`、`search_docs` 工具，通过 JSON Schema 注册 |
-| **RAG 检索** | 使用智谱 `embedding-3` 对知识库向量化，手写余弦相似度实现 top-k 检索 |
-| **防幻觉约束** | system prompt 强制“仅基于检索内容回答”，资料不足时主动说明 |
+| **RAG 检索** | 读取 `docs/*.md` 自动切块，智谱 `embedding-3` 向量化，手写余弦相似度 top-k |
+| **增量向量缓存** | 以内容哈希为键，改一篇文档只重算那篇的块，其余命中本地缓存（0 次接口调用） |
+| **相关性阈值** | top1 相似度低于 0.35 直接判定“没查到”，从源头掐掉硬凑答案 |
+| **事件回调** | Agent 内部零 `print`，通过 `on_event` 把步数/工具调用抛给命令行或界面 |
+| **防幻觉约束** | system prompt + 检索结果带来源 + 阈值三道防线，资料不足时主动说明 |
 | **Streamlit 部署** | 已部署至 Streamlit Cloud，支持本地 `.env` 与云端 `st.secrets` 双模式 |
 
 ---
@@ -37,17 +40,19 @@
 ```
 mini-agent/
 ├── app.py              # Streamlit 主程序（只负责界面，Agent 逻辑不在这里）
-├── agent.py            # Agent 类：ReAct 循环 + 多轮记忆 + 工具轨迹收集
+├── agent.py            # Agent 类：ReAct 循环 + 多轮记忆 + 事件回调 + 工具轨迹
 ├── tools.py            # 工具注册表：函数本体 + JSON Schema，单一来源
-├── knowledge.py        # RAG 知识库：文档、向量化、检索
+├── knowledge.py        # 知识库：加载 docs/ → 切块 → 增量向量化 → 检索
+├── docs/               # 知识库原文（markdown，改完重启即生效）
+├── .cache/             # 向量缓存（kb_vectors.npz，已 gitignore）
 ├── agent_loop.py       # 函数式 ReAct 循环（阶段2 教学版，保留对照）
-├── agent_class.py      # Agent 类的用法演示（多轮记忆）
+├── agent_class.py      # Agent 类的用法演示（多轮记忆 + 事件打印）
 ├── tool_call.py        # 单次工具调用教学示例
 ├── rag_demo.py         # RAG 流程教学示例
 ├── hello_agent.py      # 首次调通 LLM 的最小示例
 ├── requirements.txt    # 依赖清单
 ├── assets/             # 截图等静态资源
-└── .gitignore          # 忽略 .venv / .env / __pycache__
+└── .gitignore          # 忽略 .venv / .env / __pycache__ / .cache
 ```
 
 ### 分层设计
@@ -57,9 +62,33 @@ mini-agent/
 | 界面层 | `app.py` | 只做渲染与交互，Agent 实例挂在 `st.session_state` 上跨请求存活 |
 | 编排层 | `agent.py` | 一次 `chat()` = 一轮对话；`messages` 喂模型、`turns` 给人看 |
 | 能力层 | `tools.py` | 工具函数 + Schema，一处定义多处复用 |
-| 检索层 | `knowledge.py` | Embedding + 余弦相似度 top-k |
+| 检索层 | `knowledge.py` | 文档切块、增量向量缓存、余弦相似度 top-k |
 
 > 关键设计：**模型上下文（`messages`）与展示历史（`turns`）分离** —— 前者含 system / tool 等内部消息，后者只保留一问一答及该轮工具轨迹，界面永远不需要理解 OpenAI 的消息协议细节。
+
+---
+
+## 维护知识库
+
+往 `docs/` 里丢 `.md` 文件就行，重启应用自动生效：
+
+```markdown
+# 文档标题
+
+## 小节标题
+
+正文段落……
+```
+
+切块规则：按 `##` 小节切分，段落累加到约 420 字，块首拼上所在小节标题（避免单句脱离语境）。改完重启，日志里会打印 `N/M 个块需要向量化` —— 只重算改动的部分，其余命中缓存。
+
+想强制全量重建（比如换了向量模型）：
+
+```python
+from knowledge import build_index
+build_index(force=True)
+```
+
 
 
 ---

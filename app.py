@@ -30,6 +30,7 @@ _get_key("DEEPSEEK_API_KEY")
 _get_key("ZHIPU_API_KEY")
 
 from agent import Agent  # noqa: E402  （必须在 Key 注入之后导入）
+from knowledge import stats as kb_stats  # noqa: E402
 
 # ---------- 系统提示词：约束模型"只根据资料回答"（防幻觉的关键一步） ----------
 SYSTEM_PROMPT = (
@@ -57,6 +58,11 @@ with st.sidebar:
     if st.button("清空对话记忆", use_container_width=True):
         agent.reset()
         st.rerun()
+    st.divider()
+    st.subheader("知识库")
+    kb = kb_stats()
+    st.caption(f"{kb['files']} 篇文档 · {kb['chunks']} 个块 · {kb['dim']} 维")
+    st.caption(f"向量模型：{kb['model']}（向量已缓存到 .cache/kb_vectors.npz）")
     st.divider()
     st.caption("同一会话内 Agent 会记住你之前说过的话，可以试试「我叫小明」→「我叫什么？」")
 
